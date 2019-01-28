@@ -1,8 +1,3 @@
-/*
- * To change this license header, choose License Headers in Project Properties.
- * To change this template file, choose Tools | Templates
- * and open the template in the editor.
- */
 package com.bleeker.netbeans.builder;
 
 import com.sun.source.tree.ClassTree;
@@ -39,18 +34,22 @@ import org.openide.util.NbBundle;
 /**
  * Code generator used to insert a builder into a java class.
  *
- * @author Arthur Bleeker
+ * @author D3X573
  */
 public class BuilderCodeGenerator implements CodeGenerator {
 
     private static final Logger logger = Logger.getLogger(BuilderCodeGenerator.class.getName());
+
+    private static final boolean BUILDER_REF_CONSTRUCTOR = true;
+    private static final boolean CREATE_GETTERS = true;
+
     private final JTextComponent textComp;
 
     /**
      * Constructor
      *
      * @param context containing JTextComponent and possibly other items
-     * registered by {@link CodeGeneratorContextProvider}
+     *                registered by {@link CodeGeneratorContextProvider}
      */
     private BuilderCodeGenerator(final Lookup context) { // Good practice is not to save Lookup outside ctor
         textComp = context.lookup(JTextComponent.class);
@@ -82,7 +81,7 @@ public class BuilderCodeGenerator implements CodeGenerator {
                     final TreeMaker treeMaker = workingCopy.getTreeMaker();
                     for (final Tree typeDecl : compilationUnitTree.getTypeDecls()) {
                         if (Tree.Kind.CLASS == typeDecl.getKind()
-                                || Tree.Kind.INTERFACE == typeDecl.getKind()) {
+                            || Tree.Kind.INTERFACE == typeDecl.getKind()) {
                             final ClassTree classTree = (ClassTree) typeDecl;
                             final List<Tree> newMembersTree = new ArrayList<>();
                             final List<Tree> newVariablesTree = new ArrayList<>();
@@ -91,9 +90,12 @@ public class BuilderCodeGenerator implements CodeGenerator {
                             newMembersTree.addAll(newVariablesTree);
                             buildNewConstructor(treeMaker, newMembersTree);
                             buildNewFactory(treeMaker, newMembersTree);
+                            if (CREATE_GETTERS) {
+                                buildNewGetters(treeMaker, classTree, newVariablesTree, newMembersTree);
+                            }
                             buildNewSetters(treeMaker, classTree, newVariablesTree, newMembersTree);
                             buildNewBuilder(treeMaker, classTree, newVariablesTree, newMembersTree);
-                            buildNewClass(workingCopy, treeMaker, classTree, newMembersTree);
+                            buildNewClass(treeMaker, classTree, newMembersTree, workingCopy);
                         }
                     }
                 }
@@ -118,9 +120,37 @@ public class BuilderCodeGenerator implements CodeGenerator {
                 Collections.<TypeParameterTree>emptyList(),
                 Collections.<VariableTree>emptyList(),
                 Collections.<ExpressionTree>emptyList(),
-                "{" + MessageFormat.format("return new {0}({1});", classTree.getSimpleName().toString(), buildListString(newVariablesTree)) + "}",
+                "{" + MessageFormat.format("return new {0}{1}({2});",
+                                           classTree.getSimpleName().toString(),
+                                           classTree.getKind() == Tree.Kind.CLASS ? "" : "Impl",
+                                           BUILDER_REF_CONSTRUCTOR ? "this" : buildListString(newVariablesTree)) + "}",
                 null);
         newMembersTree.add(newBuildMethodTree);
+    }
+
+    private void buildNewGetters(final TreeMaker treeMaker, final ClassTree classTree, final List<Tree> newVariablesTree, final List<Tree> newMembersTree) {
+        // and create new builder getters
+        for (final Tree tree : newVariablesTree) {
+            if (Tree.Kind.VARIABLE == tree.getKind()) {
+                final VariableTree variableTree = (VariableTree) tree;
+                final ModifiersTree modifiersTree = variableTree.getModifiers();
+                // we only care about instance variables
+                if (modifiersTree.getFlags().contains(Modifier.STATIC)) {
+                    continue;
+                }
+                // create a getter method
+                final MethodTree newGetterMethodTree = treeMaker.Method(
+                        treeMaker.Modifiers(EnumSet.of(Modifier.PUBLIC)),
+                        variableTree.getName().toString(),
+                        variableTree.getType(),
+                        Collections.<TypeParameterTree>emptyList(),
+                        Collections.<VariableTree>emptyList(),
+                        Collections.<ExpressionTree>emptyList(),
+                        "{" + MessageFormat.format("return this.{0};", variableTree.getName().toString()) + "}",
+                        null);
+                newMembersTree.add(newGetterMethodTree);
+            }
+        }
     }
 
     private void buildNewSetters(final TreeMaker treeMaker, final ClassTree classTree, final List<Tree> newVariablesTree, final List<Tree> newMembersTree) {
@@ -171,7 +201,7 @@ public class BuilderCodeGenerator implements CodeGenerator {
     private void buildNewConstructor(final TreeMaker treeMaker, final List<Tree> newMembersTree) {
         // create the constructor
         final MethodTree newConstructorMethodTree = treeMaker.Constructor(
-                treeMaker.Modifiers(EnumSet.of(Modifier.PRIVATE)),
+                treeMaker.Modifiers(EnumSet.of(Modifier.PROTECTED)),
                 Collections.<TypeParameterTree>emptyList(),
                 Collections.<VariableTree>emptyList(),
                 Collections.<ExpressionTree>emptyList(),
@@ -192,7 +222,7 @@ public class BuilderCodeGenerator implements CodeGenerator {
                     }
                     // create a field
                     final VariableTree newFieldTree = treeMaker.Variable(
-                            treeMaker.Modifiers(EnumSet.of(Modifier.PRIVATE)),
+                            treeMaker.Modifiers(EnumSet.of(Modifier.PROTECTED)),
                             variableTree.getName().toString(),
                             variableTree.getType(),
                             null);
@@ -224,7 +254,7 @@ public class BuilderCodeGenerator implements CodeGenerator {
                     }
                     // create a field
                     final VariableTree newFieldTree = treeMaker.Variable(
-                            treeMaker.Modifiers(EnumSet.of(Modifier.PRIVATE)),
+                            treeMaker.Modifiers(EnumSet.of(Modifier.PROTECTED)),
                             Character.toLowerCase(methodTree.getName().toString().charAt(prefix.length())) + methodTree.getName().toString().substring(prefix.length() + 1),
                             methodTree.getReturnType(),
                             null);
@@ -234,7 +264,7 @@ public class BuilderCodeGenerator implements CodeGenerator {
         }
     }
 
-    private void buildNewClass(final WorkingCopy workingCopy, final TreeMaker treeMaker, final ClassTree classTree, final List<Tree> newMembersTree) {
+    private void buildNewClass(final TreeMaker treeMaker, final ClassTree classTree, final List<Tree> newMembersTree, final WorkingCopy workingCopy) {
         // create the new builder internal class
         ClassTree newClassTree = treeMaker.Class(
                 treeMaker.Modifiers(EnumSet.of(Modifier.PUBLIC, Modifier.STATIC)),
