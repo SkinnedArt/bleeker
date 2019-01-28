@@ -3,7 +3,7 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>com.bleeker.netbeans</groupId>
     <artifactId>builder</artifactId>
-    <version>8.2.2</version>
+    <version>8.2.3-SNAPSHOT</version>
     <packaging>nbm</packaging>
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
